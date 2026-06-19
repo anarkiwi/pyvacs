@@ -43,6 +43,28 @@ jobs:
       - name: pylint
         run: pylint src/pyvacs
 
+  integration:
+    # End-to-end: assemble the hello-world ROM with pyvacs and render it on the
+    # MAME `arcadia` (Fountain Force 2 / Arcadia 2001) emulator, then check the
+    # snapshot is a solid green test pattern.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install MAME and Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mame xvfb
+      - name: Install pyvacs
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run emulator integration test
+        run: pytest -m integration --no-cov -v
+
   build:
     runs-on: ubuntu-latest
     steps:
