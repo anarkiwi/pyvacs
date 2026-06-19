@@ -1,0 +1,58 @@
+name: Publish to PyPI
+
+# Publishes pyvacs to PyPI when a GitHub release is published, using PyPI
+# Trusted Publishing (OpenID Connect) - no long-lived API tokens are stored.
+#
+# One-time setup on PyPI (https://pypi.org/manage/account/publishing/):
+#   - PyPI project:   pyvacs
+#   - Owner:          anarkiwi
+#   - Repository:     pyvacs
+#   - Workflow name:  publish.yml
+#   - Environment:    pypi
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build distribution
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Check distribution metadata
+        run: |
+          python -m pip install --upgrade twine
+          python -m twine check dist/*
+      - name: Upload distribution artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pyvacs
+    permissions:
+      id-token: write # required for OIDC trusted publishing
+    steps:
+      - name: Download distribution artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
