@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# pyvacs: downloaded ROM fixtures (not checked in)
+tests/.romcache/

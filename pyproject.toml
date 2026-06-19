@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyvacs"
+version = "0.1.0"
+description = "A Python assembler and disassembler for the Signetics 2650 microprocessor"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+authors = [{ name = "Josh Bailey", email = "josh@overlyspecific.com" }]
+keywords = ["2650", "signetics", "assembler", "disassembler", "arcadia", "retro"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Assemblers",
+    "Topic :: Software Development :: Disassemblers",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",
+    "pylint>=3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/anarkiwi/pyvacs"
+Repository = "https://github.com/anarkiwi/pyvacs"
+Issues = "https://github.com/anarkiwi/pyvacs/issues"
+
+[project.scripts]
+pyvacs-asm = "pyvacs.cli:assemble_main"
+pyvacs-dasm = "pyvacs.cli:disassemble_main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 88
+target-version = ["py38"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=pyvacs --cov-report=term-missing --cov-fail-under=85"
+
+[tool.coverage.run]
+branch = true
+source = ["pyvacs"]
+
+[tool.pylint.main]
+py-version = "3.8"
+
+[tool.pylint.format]
+max-line-length = 88
+
+[tool.pylint."messages control"]
+disable = [
+    "too-few-public-methods",
+    "too-many-instance-attributes",
+    "too-many-return-statements",
+    "too-many-arguments",
+    "too-many-positional-arguments",
+    "duplicate-code",
+]
