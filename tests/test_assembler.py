@@ -50,6 +50,25 @@ def test_forward_reference():
     assert program.to_bytes() == bytes([0x1F, 0x00, 0x04, 0xC0, 0x40])
 
 
+def test_forward_reference_with_transient_out_of_range_value():
+    # Regression: in pass one a forward symbol resolves to 0, so "data-1"
+    # evaluates to -1.  Pass one must only size the instruction (lengths are
+    # fixed) and must not run the encoder's range checks against that
+    # placeholder, otherwise a legal absolute-indexed reference like the one
+    # below fails with a spurious "address crosses an 8K page boundary".
+    program = assemble(
+        "        org 0\n"
+        "        loda,r0 data-1,r2,+\n"
+        "        nop\n"
+        "data:   db $00\n"
+        "        end\n"
+    )
+    # data is at offset 4, so data-1 == 3; LODA with auto-increment index r2
+    # (the index register r2 biases the opcode byte: 0x0C + 2 == 0x0E).
+    assert program.symbols["DATA"] == 4
+    assert program.to_bytes()[:3] == bytes([0x0E, 0x20, 0x03])
+
+
 def test_equ_and_set():
     program = assemble("value   equ $2a\n" "        lodi,r0 value\n" "        end\n")
     assert program.symbols["VALUE"] == 0x2A
