@@ -357,11 +357,16 @@ class Assembler:
     def _assemble_instruction(
         self, mnemonic: str, tokens: List[Token], pos: int
     ) -> None:
-        base, mode = isa.INSTRUCTIONS[mnemonic]
-        del base
+        mode = isa.INSTRUCTIONS[mnemonic][1]
         address = self.location
         ops, pos = self._parse_operands(mode, tokens, pos)
         self._expect_eol(tokens, pos)
+        if self._pass == 1:
+            # Pass one only needs the (fixed) instruction length; operand values
+            # may still reference undefined forward symbols, so we must not run
+            # the encoder's range checks against placeholder zeros here.
+            self.location += isa.MODE_LENGTHS[mode]
+            return
         try:
             data = isa.encode(mnemonic, ops, address)
         except isa.EncodingError as exc:
