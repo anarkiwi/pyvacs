@@ -52,7 +52,7 @@ jobs:
         with:
           key: py${{ matrix.python-version }}
       - name: ROM cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: tests/.romcache
           key: romcache-${{ hashFiles('tests/conftest.py') }}
@@ -111,7 +111,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: ROM cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: tests/.romcache
           key: romcache-${{ hashFiles('tests/conftest.py') }}
