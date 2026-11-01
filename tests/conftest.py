@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import urllib.error
 import urllib.request
 import zipfile
@@ -34,6 +35,7 @@ CACHE_ZIP = CACHE_DIR / "arcadia_tosec.zip"
 
 # Number of ROM images to expose to the tests (kept small for CI speed).
 MAX_ROMS = 8
+NON_GAME = re.compile(r"\[[boh]\]|^Dictionary|^Golf")
 
 
 def _download_tosec() -> bytes:
@@ -49,13 +51,11 @@ def _download_tosec() -> bytes:
 
 
 def _extract_roms(payload: bytes) -> Dict[str, bytes]:
-    """Pull a handful of ``.bin`` ROM images out of the nested TOSEC zip."""
+    """Every ``.bin`` image in the nested TOSEC zip, by filename, in archive order."""
     roms: Dict[str, bytes] = {}
     with zipfile.ZipFile(io.BytesIO(payload)) as outer:
         names = sorted(n for n in outer.namelist() if n.lower().endswith(".zip"))
         for name in names:
-            if len(roms) >= MAX_ROMS:
-                break
             with zipfile.ZipFile(io.BytesIO(outer.read(name))) as inner:
                 for member in inner.namelist():
                     if member.lower().endswith(".bin"):
@@ -65,8 +65,8 @@ def _extract_roms(payload: bytes) -> Dict[str, bytes]:
 
 
 @pytest.fixture(scope="session")
-def rom_images() -> Dict[str, bytes]:
-    """Return a mapping of ROM filename to bytes, or skip if unavailable."""
+def all_rom_images() -> Dict[str, bytes]:
+    """Every ROM image in the TOSEC set, or skip if unavailable."""
     if os.environ.get("PYVACS_SKIP_ROM_TESTS"):
         pytest.skip("ROM tests disabled via PYVACS_SKIP_ROM_TESTS")
     try:
@@ -80,3 +80,23 @@ def rom_images() -> Dict[str, bytes]:
     if not roms:  # pragma: no cover - unexpected archive layout
         pytest.skip("no ROM images found in archive")
     return roms
+
+
+@pytest.fixture(scope="session")
+def rom_images(all_rom_images) -> Dict[str, bytes]:
+    """The first ``MAX_ROMS`` images: a small sample for round-trip tests."""
+    return dict(list(all_rom_images.items())[:MAX_ROMS])
+
+
+@pytest.fixture(scope="session")
+def game_images(all_rom_images) -> Dict[str, bytes]:
+    """Complete, standard-mapped Arcadia games.
+
+    Excludes bad/over/hacked dumps (``[b]``, ``[o]``, ``[h]``), the Dictionary
+    sub-cartridges, and Golf, which needs the Palladium's $4000 ROM mapping.
+    """
+    return {
+        name: image
+        for name, image in all_rom_images.items()
+        if not NON_GAME.search(name)
+    }
