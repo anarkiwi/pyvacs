@@ -1,7 +1,7 @@
 # pyvacs
 
-A Python assembler **and** disassembler for the Signetics/Philips **2650**
-microprocessor family.
+A Python assembler, disassembler **and** native emulator for the Signetics/Philips
+**2650** microprocessor family.
 
 `pyvacs` is a clean-room Python reimplementation of the classic
 [VACS 1.24](https://github.com/Dennis1000/VACS) assembler by A.C. Verschueren and
@@ -94,25 +94,41 @@ msg:    db    $21,$1e,$ff
         end   start
 ```
 
+## Emulator
+
+A native (Rust, GIL-free) Signetics 2650 + 2637 UVI emulator runs Fountain Force 2 /
+Arcadia 2001 cartridges headless at hundreds of times real time:
+
+```sh
+pyvacs-run game.bin --frames 600 --png shot.png
+```
+
+```python
+from pyvacs.emu import FountainForce2
+m = FountainForce2(open("game.bin", "rb").read())
+m.run_frames(600)
+m.save_png("shot.png")
+```
+
+See [docs/emulator.md](docs/emulator.md) for the API, timing model and validation.
+
 ## Development
+
+Building from source needs a Rust toolchain (the package builds with maturin).
 
 ```sh
 pip install -e ".[dev]"
-pytest                 # tests + coverage (>85% enforced)
+pytest -n auto         # tests + coverage (>85% enforced)
 black --check src tests
 pylint src/pyvacs
+cargo test --workspace
 ```
 
-### ROM test fixtures
-
-The test-suite round-trips real **Fountain Force 2 / Arcadia 2001** cartridge
-ROMs through the disassembler and assembler. The ROM images are **not** checked
-into this repository: on first run the tests download the
+ROM-dependent tests download the
 [TOSEC Arcadia 2001 set](https://archive.org/details/Emerson_Arcadia_2001_TOSEC_2012_04_23)
-from the Internet Archive and cache it under `tests/.romcache/` (git-ignored).
-If the download is unavailable the ROM-dependent tests skip automatically, so
-the core suite still runs offline. Set `PYVACS_SKIP_ROM_TESTS=1` to skip them
-explicitly.
+into `tests/.romcache/` (git-ignored) and skip when it is unavailable
+(`PYVACS_SKIP_ROM_TESTS=1` skips them explicitly). `pytest -m integration` runs the
+MAME end-to-end and differential tests.
 
 ## License
 
