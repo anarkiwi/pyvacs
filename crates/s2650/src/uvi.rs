@@ -144,28 +144,34 @@ const EXPAND: [u64; 256] = {
     t
 };
 
-/// SPRITECOLLIDE bits for each set of sprites covering one pixel.
-const PAIRS: [u8; 16] = {
-    let mut t = [0u8; 16];
-    let mut s = 0;
-    while s < 16 {
-        let mut bit = 0;
-        let mut i = 0;
-        while i < 4 {
-            let mut j = i + 1;
-            while j < 4 {
-                if s & (1 << i) != 0 && s & (1 << j) != 0 {
-                    t[s] |= 1 << bit;
-                }
-                bit += 1;
-                j += 1;
-            }
-            i += 1;
-        }
-        s += 1;
+/// SPRITECOLLIDE bit for each sprite pair `(i, j)`, `i < j`.
+const PAIR_BIT: [[u8; 4]; 4] = [[0, 1, 2, 4], [0, 0, 8, 16], [0, 0, 0, 32], [0; 4]];
+
+/// One bit per framebuffer pixel of a raster line.
+type Bits = [u64; WIDTH / 64];
+
+/// OR `bits` (bit `k` = pixel `x + k`) into `m`, clipped to the framebuffer.
+#[inline(always)]
+fn place(m: &mut Bits, bits: u8, x: i32) {
+    if x <= -8 || x >= WIDTH as i32 {
+        return;
     }
-    t
-};
+    let (v, x) = if x < 0 {
+        ((bits >> -x) as u64, 0)
+    } else {
+        (bits as u64, x as usize)
+    };
+    let (w, o) = (x >> 6, x & 63);
+    m[w] |= v << o;
+    if o > 56 && w + 1 < m.len() {
+        m[w + 1] |= v >> (64 - o);
+    }
+}
+
+#[inline(always)]
+fn overlaps(a: &Bits, b: &Bits) -> bool {
+    a.iter().zip(b).any(|(x, y)| x & y != 0)
+}
 
 const SPLAT: u64 = 0x0101_0101_0101_0101;
 const CHARLINE: usize = 0x0ff;
@@ -196,11 +202,14 @@ pub struct Uvi {
     pub invert_on_flag: bool,
     vscroll: u8,
     spos: [[u8; 2]; 4],
+    /// Lines `sprite_lines.0..sprite_lines.1` can hold sprite pixels this frame.
+    sprite_lines: (u16, u16),
     shift: usize,
     bg_hit: u8,
     spr_hit: u8,
-    fg: [u8; WIDTH],
-    cover: [u8; WIDTH],
+    /// Pixels are drawn only while `frames >= render_from`; earlier lines compute
+    /// collisions alone.
+    pub render_from: u64,
 }
 
 impl Uvi {
@@ -215,11 +224,11 @@ impl Uvi {
             invert_on_flag: true,
             vscroll: 0,
             spos: [[0; 2]; 4],
+            sprite_lines: (0, 0),
             shift: 0,
             bg_hit: 0xff,
             spr_hit: 0xff,
-            fg: [0; WIDTH],
-            cover: [0; WIDTH],
+            render_from: 0,
         };
         u.reset();
         u
@@ -233,6 +242,7 @@ impl Uvi {
         self.frame.fill(0);
         self.vscroll = 0;
         self.spos = [[0; 2]; 4];
+        self.sprite_lines = (0, 0);
         self.shift = 0;
         self.bg_hit = 0xff;
         self.spr_hit = 0xff;
@@ -268,6 +278,39 @@ impl Uvi {
         } else {
             self.field_pos().map_or(0xd, |(row, _)| (row % ROWS) as u8)
         }
+    }
+
+    /// How many further [`Uvi::line`] calls keep SENSE (if `sense`) and CHARLINE (if
+    /// `charline`) at their current values and the frame count unchanged, assuming the
+    /// window is not written meanwhile.
+    pub fn stable_lines(&self, sense: bool, charline: bool) -> u16 {
+        self.stable_lines_from(self.line, sense, charline)
+    }
+
+    /// [`Uvi::stable_lines`] as seen from beam line `l` of the current frame.
+    pub fn stable_lines_from(&self, l: u16, sense: bool, charline: bool) -> u16 {
+        let (a, n) = (self.timing.active(), self.timing.lines);
+        let mut next = n;
+        if sense && l < a {
+            next = a;
+        }
+        if charline && l == 0 && self.mem[VSCROLL] != self.vscroll {
+            return 0;
+        }
+        if charline && l < a {
+            let f0 = 255 - self.vscroll as u16;
+            let h = self.row_height();
+            let rows = if self.mem[PAL0] & 0x40 != 0 { 26 } else { 13 };
+            let edge = if l < f0 {
+                f0
+            } else if l < f0 + rows * h {
+                f0 + ((l - f0) / h + 1) * h
+            } else {
+                a
+            };
+            next = next.min(edge).min(a);
+        }
+        next - l - 1
     }
 
     /// Value a CPU read of `off` would return, without clearing the collision latches.
@@ -320,6 +363,14 @@ impl Uvi {
             for (i, p) in self.spos.iter_mut().enumerate() {
                 *p = [self.mem[0x0f0 + 2 * i], self.mem[0x0f1 + 2 * i]];
             }
+            self.sprite_lines = self
+                .spos
+                .iter()
+                .filter(|p| p[0] != 0)
+                .map(|p| 256 - p[0] as u16)
+                .fold((u16::MAX, 0), |(lo, hi), top| {
+                    (lo.min(top), hi.max(top + 16))
+                });
             self.bg_hit = 0xff;
             self.spr_hit = 0xff;
         }
@@ -333,104 +384,126 @@ impl Uvi {
         }
     }
 
+    /// Pattern byte and screen byte of each of the 16 cells of field row `n`, glyph row `r`.
+    #[inline(always)]
+    fn cells(&self, n: usize, r: usize) -> [(u8, u8); 16] {
+        let mem = &self.mem;
+        let base = if n < ROWS {
+            n * 16
+        } else {
+            0x200 + (n - ROWS) * 16
+        };
+        let mut block = mem[PAL0] & 0x80 != 0;
+        let mut out = [(0, 0); 16];
+        for (o, &b) in out.iter_mut().zip(&mem[base..base + 16]) {
+            let code = (b & 0x3f) as usize;
+            if code == 0 {
+                block = match b {
+                    0xc0 => true,
+                    0x40 => false,
+                    _ => block,
+                };
+            }
+            let pat = if block {
+                TRI[code >> (if r < 4 { 0 } else { 3 }) & 7]
+            } else if code < GLYPHS.len() {
+                GLYPHS[code][r]
+            } else {
+                mem[UDG + 8 * (code - GLYPHS.len()) + r]
+            };
+            *o = (pat, b);
+        }
+        out
+    }
+
+    /// Render (or, with `render` off, only collision-check) the current raster line.
     fn render(&mut self, flag: bool) {
-        let y = self.line as usize;
         let field = self.field_pos();
-        let dbl = self.row_height() >> 4;
         if let Some((_, 0)) = field {
             self.shift = (self.mem[SOUND] >> 5) as usize;
         }
-        let x0 = XPOS + self.shift;
-        let fg_span = if field.is_some() { x0..x0 + 128 } else { 0..0 };
-        let mem = &self.mem;
-        let (pal0, pal1) = (mem[PAL0], mem[PAL1]);
-        let row = &mut self.frame[y * WIDTH..(y + 1) * WIDTH];
-        row.fill(pal1 & 7);
-        if let Some((n, sub)) = field {
-            let r = (sub >> dbl) as usize;
-            let base = if n < ROWS {
-                n * 16
-            } else {
-                0x200 + (n - ROWS) * 16
-            };
-            let multi = mem[PITCH] & 0x80 != 0;
-            let mut block = pal0 & 0x80 != 0;
-            for (j, &b) in mem[base..base + 16].iter().enumerate() {
-                let code = (b & 0x3f) as usize;
-                if code == 0 {
-                    block = match b {
-                        0xc0 => true,
-                        0x40 => false,
-                        _ => block,
-                    };
-                }
-                let pat = if block {
-                    TRI[code >> (if r < 4 { 0 } else { 3 }) & 7]
-                } else if code < GLYPHS.len() {
-                    GLYPHS[code][r]
-                } else {
-                    mem[UDG + 8 * (code - GLYPHS.len()) + r]
-                };
-                let (fc, bc) = if multi {
-                    let f = if b & 0x40 != 0 { pal1 } else { pal0 };
-                    let g = if b & 0x80 != 0 { pal1 } else { pal0 };
-                    (f >> 3 & 7, g & 7)
-                } else {
-                    (pal1 >> 3 & 1 | b >> 5 & 6, pal1 & 7)
-                };
-                let m = EXPAND[pat as usize];
-                let px = (m & (fc as u64 * SPLAT)) | (!m & (bc as u64 * SPLAT));
-                let x = x0 + 8 * j;
-                row[x..x + 8].copy_from_slice(&px.to_le_bytes());
-                self.fg[x..x + 8].copy_from_slice(&m.to_le_bytes());
-            }
+        let render = self.frames >= self.render_from;
+        if !render && !(self.sprite_lines.0..self.sprite_lines.1).contains(&self.line) {
+            return;
         }
-
-        let mut active = [(0usize, 0i32, 0u8); 4];
-        let mut n = 0;
+        let mem = &self.mem;
+        let mut sprites = [Bits::default(); 4];
+        let mut live = 0u8;
         let mut col = [0u8; 4];
         for (i, &[sy, sx]) in self.spos.iter().enumerate() {
             let ctrl = mem[0x1fb - (i >> 1)];
             let short = ctrl & (0x80 >> (i & 1)) != 0;
             col[i] = ctrl >> (3 * (1 - (i & 1))) & 7;
-            let top = 256 - sy as u16;
-            let d = self.line.wrapping_sub(top);
+            let d = self.line.wrapping_sub(256 - sy as u16);
             if sy == 0 || d >= if short { 8 } else { 16 } {
                 continue;
             }
             let b = mem[UDG + 8 * i + (d >> (!short as u16)) as usize];
             if b != 0 {
-                active[n] = (i, sx as i32 - 43 + XPOS as i32, b);
-                n += 1;
+                place(
+                    &mut sprites[i],
+                    b.reverse_bits(),
+                    sx as i32 - 43 + XPOS as i32,
+                );
+                live |= 1 << i;
             }
         }
-        if n > 0 {
+        if !render && live == 0 {
+            return;
+        }
+        let x0 = XPOS + self.shift;
+        let (pal0, pal1) = (mem[PAL0], mem[PAL1]);
+        let cells = field.map(|(n, sub)| self.cells(n, (sub >> (self.row_height() >> 4)) as usize));
+        if live != 0 {
+            let mut fg = Bits::default();
+            for (j, &(pat, _)) in cells.iter().flatten().enumerate() {
+                place(&mut fg, pat.reverse_bits(), (x0 + 8 * j) as i32);
+            }
+            for i in 0..4 {
+                if live >> i & 1 != 0 {
+                    if overlaps(&sprites[i], &fg) {
+                        self.bg_hit &= !(1 << i);
+                    }
+                    for j in i + 1..4 {
+                        if live >> j & 1 != 0 && overlaps(&sprites[i], &sprites[j]) {
+                            self.spr_hit &= !PAIR_BIT[i][j];
+                        }
+                    }
+                }
+            }
+        }
+        if !render {
+            return;
+        }
+        let y = self.line as usize;
+        let row = &mut self.frame[y * WIDTH..(y + 1) * WIDTH];
+        row.fill(pal1 & 7);
+        let multi = mem[PITCH] & 0x80 != 0;
+        for (j, &(pat, b)) in cells.iter().flatten().enumerate() {
+            let (fc, bc) = if multi {
+                let f = if b & 0x40 != 0 { pal1 } else { pal0 };
+                let g = if b & 0x80 != 0 { pal1 } else { pal0 };
+                (f >> 3 & 7, g & 7)
+            } else {
+                (pal1 >> 3 & 1 | b >> 5 & 6, pal1 & 7)
+            };
+            let m = EXPAND[pat as usize];
+            let px = (m & (fc as u64 * SPLAT)) | (!m & (bc as u64 * SPLAT));
+            let x = x0 + 8 * j;
+            row[x..x + 8].copy_from_slice(&px.to_le_bytes());
+        }
+        if live != 0 {
             let mut scol = [0u8; 16];
             for s in 1..16 {
                 scol[s] = scol[s & (s - 1)] | col[s.trailing_zeros() as usize];
             }
-            let pixels = |&(_, x, b): &(usize, i32, u8)| {
-                (0..8)
-                    .filter(move |k| b & (0x80 >> k) != 0)
-                    .map(move |k| x + k)
-                    .filter(|&p| (0..WIDTH as i32).contains(&p))
-                    .map(|p| p as usize)
-            };
-            for a in &active[..n] {
-                for p in pixels(a) {
-                    self.cover[p] |= 1 << a.0;
-                }
-            }
-            for a in &active[..n] {
-                for p in pixels(a) {
-                    let s = std::mem::take(&mut self.cover[p]);
-                    if s != 0 {
-                        row[p] = scol[s as usize];
-                        if fg_span.contains(&p) && self.fg[p] != 0 {
-                            self.bg_hit &= !s;
-                        }
-                        self.spr_hit &= !PAIRS[s as usize];
-                    }
+            for w in 0..WIDTH / 64 {
+                let mut any = sprites.iter().fold(0, |a, s| a | s[w]);
+                while any != 0 {
+                    let t = any.trailing_zeros();
+                    let set = (0..4).fold(0, |a, i| a | ((sprites[i][w] >> t & 1) as usize) << i);
+                    row[w * 64 + t as usize] = scol[set];
+                    any &= any - 1;
                 }
             }
         }

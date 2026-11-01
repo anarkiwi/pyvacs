@@ -10,7 +10,7 @@ import pytest
 emu = pytest.importorskip("pyvacs.emu")
 
 FRAMES = 600
-MIN_SPEED = 20.0
+MIN_SPEED = 200.0
 
 
 def _run(image: bytes, region: str = "pal") -> "emu.FountainForce2":
@@ -45,6 +45,31 @@ def test_games_are_deterministic(game_images):
             b.frame,
             b.read(0x1800, 0x300),
         ), name
+
+
+@pytest.mark.parametrize("region", ["pal", "ntsc"])
+def test_fast_path_matches_plain_stepping(game_images, region):
+    def state(m):
+        return m.clocks, m.pc, m.line, m.read(0x1800, 0x300), m.frame
+
+    for name, image in game_images.items():
+        slow = emu.FountainForce2(image, region=region)
+        slow.fast = False
+        fast = emu.FountainForce2(image, region=region)
+        batched = emu.FountainForce2(image, region=region)
+        for frame in range(1, 301):
+            slow.run_frames(1)
+            fast.run_frames(1)
+            assert state(slow) == state(fast), (name, frame)
+            if frame % 100 == 0:
+                batched.run_frames(100)
+                assert state(slow) == state(batched), (name, frame)
+                for n in (1, 57, 17_711):
+                    for m in (slow, fast, batched):
+                        m.run_clocks(n)
+                    assert state(slow) == state(fast) == state(batched), (name, n)
+                for m in (slow, fast, batched):
+                    m.run_frames(1)
 
 
 def test_games_run_far_faster_than_real_time(game_images):

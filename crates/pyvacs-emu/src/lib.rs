@@ -333,6 +333,15 @@ impl FountainForce2 {
     fn illegal(&self) -> u64 {
         self.m.cpu.illegal
     }
+    /// Fast-forward idle loops and skip drawing unobserved frames (results identical).
+    #[getter]
+    fn fast(&self) -> bool {
+        self.m.fast
+    }
+    #[setter]
+    fn set_fast(&mut self, v: bool) {
+        self.m.fast = v;
+    }
     /// Tone generator frequency in Hz, or None when silent.
     #[getter]
     fn tone_hz(&self) -> Option<f64> {
