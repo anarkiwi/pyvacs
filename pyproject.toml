@@ -1,16 +1,16 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
 
 [project]
 name = "pyvacs"
-version = "0.1.0"
-description = "A Python assembler and disassembler for the Signetics 2650 microprocessor"
+version = "0.2.0"
+description = "A Python assembler, disassembler and emulator for the Signetics 2650 microprocessor"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "Josh Bailey", email = "josh@overlyspecific.com" }]
-keywords = ["2650", "signetics", "assembler", "disassembler", "arcadia", "retro"]
+keywords = ["2650", "signetics", "assembler", "disassembler", "emulator", "arcadia", "retro"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -19,15 +19,20 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Free Threading :: 2 - Beta",
+    "Programming Language :: Rust",
     "Topic :: Software Development :: Assemblers",
     "Topic :: Software Development :: Disassemblers",
+    "Topic :: System :: Emulators",
 ]
-dependencies = []
+dependencies = ["numpy>=1.24", "tqdm>=4.60"]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "pytest-xdist>=3.0",
     "black>=23.0",
     "pylint>=3.0",
 ]
@@ -40,9 +45,13 @@ Issues = "https://github.com/anarkiwi/pyvacs/issues"
 [project.scripts]
 pyvacs-asm = "pyvacs.cli:assemble_main"
 pyvacs-dasm = "pyvacs.cli:disassemble_main"
+pyvacs-run = "pyvacs.cli:run_main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.maturin]
+manifest-path = "crates/pyvacs-emu/Cargo.toml"
+module-name = "pyvacs._emu"
+python-source = "src"
+features = ["pyo3/extension-module"]
 
 [tool.black]
 line-length = 88
@@ -61,6 +70,7 @@ source = ["pyvacs"]
 
 [tool.pylint.main]
 py-version = "3.10"
+extension-pkg-allow-list = ["pyvacs._emu"]
 
 [tool.pylint.format]
 max-line-length = 88

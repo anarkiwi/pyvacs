@@ -270,18 +270,30 @@ impl Uvi {
         }
     }
 
-    pub fn read(&mut self, off: u16) -> u8 {
+    /// Value a CPU read of `off` would return, without clearing the collision latches.
+    pub fn peek(&self, off: u16) -> u8 {
         let off = off as usize;
         match off {
             CHARLINE => 0xf0 | self.dma(),
-            BGCOLLIDE => std::mem::replace(&mut self.bg_hit, 0xff) | 0xf0,
-            SPRITECOLLIDE => std::mem::replace(&mut self.spr_hit, 0xff) | 0xc0,
+            BGCOLLIDE => self.bg_hit | 0xf0,
+            SPRITECOLLIDE => self.spr_hit | 0xc0,
             0x1fe | 0x1ff if self.sense() => {
                 self.pots[0x1ff - off][(self.mem[PAL1] >> 6 & 1) as usize]
             }
             0x1fe | 0x1ff => 0xff,
             _ => self.mem[off],
         }
+    }
+
+    /// CPU read of `off`; reading a collision register clears its latch.
+    pub fn read(&mut self, off: u16) -> u8 {
+        let v = self.peek(off);
+        match off as usize {
+            BGCOLLIDE => self.bg_hit = 0xff,
+            SPRITECOLLIDE => self.spr_hit = 0xff,
+            _ => {}
+        }
+        v
     }
 
     pub fn write(&mut self, off: u16, v: u8) {

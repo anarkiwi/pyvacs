@@ -1,0 +1,18 @@
+[package]
+name = "pyvacs-emu"
+description = "Python bindings for the s2650 CPU and the fforce2 machine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "_emu"
+crate-type = ["cdylib"]
+
+[dependencies]
+s2650 = { path = "../s2650" }
+fforce2 = { path = "../fforce2" }
+pyo3 = "0.30"

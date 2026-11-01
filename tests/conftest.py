@@ -20,6 +20,9 @@ from typing import Dict
 
 import pytest
 
+for _var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+    os.environ.setdefault(_var, "2")
+
 # Stable TOSEC Arcadia 2001 ROM set on the Internet Archive.
 TOSEC_URL = (
     "https://archive.org/download/Emerson_Arcadia_2001_TOSEC_2012_04_23/"

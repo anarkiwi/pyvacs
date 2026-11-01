@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/s2650", "crates/fforce2"]
+members = ["crates/s2650", "crates/fforce2", "crates/pyvacs-emu"]
 resolver = "2"
 
 [workspace.package]
