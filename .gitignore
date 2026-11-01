@@ -222,3 +222,4 @@ tests/.romcache/
 
 .claude/worktrees/
 target/
+tests/.mamerun/
