@@ -1,0 +1,15 @@
+[workspace]
+members = ["crates/s2650", "crates/fforce2", "crates/pyvacs-emu"]
+resolver = "2"
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Josh Bailey <josh@overlyspecific.com>"]
+repository = "https://github.com/anarkiwi/pyvacs"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"

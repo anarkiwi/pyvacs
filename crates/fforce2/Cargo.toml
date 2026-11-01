@@ -1,0 +1,11 @@
+[package]
+name = "fforce2"
+description = "Fountain Force 2 / Emerson Arcadia 2001 machine built on the s2650 crate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+s2650 = { path = "../s2650" }

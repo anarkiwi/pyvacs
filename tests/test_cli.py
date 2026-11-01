@@ -1,8 +1,19 @@
 """Tests for the command-line entry points."""
 
+from pathlib import Path
+
 import pytest
 
-from pyvacs.cli import assemble_main, disassemble_main
+from pngutil import decode_png_rgb
+from pyvacs import assemble
+from pyvacs.cli import assemble_main, disassemble_main, run_main
+
+HELLOWORLD = (
+    Path(__file__).resolve().parent.parent
+    / "examples"
+    / "helloworld"
+    / "helloworld.asm"
+)
 
 
 def test_assemble_to_file(tmp_path):
@@ -73,3 +84,53 @@ def test_assemble_version(capsys):
         assemble_main(["--version"])
     assert info.value.code == 0
     assert "pyvacs" in capsys.readouterr().out
+
+
+@pytest.fixture
+def helloworld_bin(tmp_path):
+    pytest.importorskip("pyvacs.emu")
+    cart = tmp_path / "hello.bin"
+    cart.write_bytes(assemble(HELLOWORLD.read_text()).to_bytes())
+    return cart
+
+
+@pytest.mark.parametrize("region,height", [("pal", 269), ("ntsc", 242)])
+def test_run_writes_png_and_coverage(helloworld_bin, tmp_path, capsys, region, height):
+    png, cov = tmp_path / "out.png", tmp_path / "cov.bin"
+    rc = run_main(
+        [
+            str(helloworld_bin),
+            "--region",
+            region,
+            "--frames",
+            "75",
+            "--png",
+            str(png),
+            "--coverage",
+            str(cov),
+            "--keys",
+            "1",
+            "Enter",
+            "--panel",
+            "start",
+        ]
+    )
+    assert rc == 0
+    width, rows_h, rows = decode_png_rgb(png)
+    assert (width, rows_h) == (192, height)
+    assert b"".join(rows) == b"\x00\xff\x00" * (192 * height)
+    executed = cov.read_bytes()
+    assert len(executed) == 0x8000 and executed[0] == 1 and executed[0x2F] == 255
+    assert "real time" in capsys.readouterr().out
+
+
+def test_run_without_outputs(helloworld_bin, capsys):
+    assert run_main([str(helloworld_bin), "--frames", "1"]) == 0
+    assert "1 frames" in capsys.readouterr().out
+
+
+def test_run_bad_inputs(helloworld_bin, capsys):
+    assert run_main([str(helloworld_bin), "--keys", "fire"]) == 1
+    assert "unknown key" in capsys.readouterr().err
+    assert run_main(["/no/such/cart.bin"]) == 1
+    assert "pyvacs-run" in capsys.readouterr().err

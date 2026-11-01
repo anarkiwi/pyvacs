@@ -1,0 +1,10 @@
+[package]
+name = "s2650"
+description = "Signetics 2650 CPU and 2637 UVI emulation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]

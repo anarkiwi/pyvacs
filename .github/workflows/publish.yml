@@ -18,30 +18,51 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  wheels:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, target: x86_64}
+          - {os: ubuntu-24.04-arm, target: aarch64}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # Not abi3: one wheel per interpreter found in the manylinux container.
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: auto
+          args: --release --locked --out dist --find-interpreter
+      - name: Smoke test
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install numpy tqdm
+          /tmp/smoke/bin/pip install --no-index --no-deps --find-links dist pyvacs
+          /tmp/smoke/bin/python -c "import pyvacs._emu, pyvacs.emu"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheels-${{ matrix.target }}
+          path: dist/*.whl
+
+  sdist:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Set up Python
-        uses: actions/setup-python@v7
+      - uses: PyO3/maturin-action@v1
         with:
-          python-version: "3.12"
-      - name: Build distribution
-        run: |
-          python -m pip install --upgrade pip build
-          python -m build
-      - name: Check distribution metadata
-        run: |
-          python -m pip install --upgrade twine
-          python -m twine check dist/*
-      - name: Upload distribution artifact
-        uses: actions/upload-artifact@v7
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v7
         with:
-          name: dist
-          path: dist/*
+          name: sdist
+          path: dist/*.tar.gz
 
   publish:
-    needs: build
+    needs: [wheels, sdist]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -49,10 +70,13 @@ jobs:
     permissions:
       id-token: write # required for OIDC trusted publishing
     steps:
-      - name: Download distribution artifact
-        uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v8
         with:
-          name: dist
-          path: dist/
+          path: dist
+          merge-multiple: true
+      - name: Check distribution metadata
+        run: pipx run twine check dist/*
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true

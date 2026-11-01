@@ -1,15 +1,17 @@
 """Command-line interface for pyvacs.
 
-Provides two console entry points:
+Console entry points:
 
 * ``pyvacs-asm`` - assemble 2650 source into a binary.
 * ``pyvacs-dasm`` - disassemble a binary into 2650 source.
+* ``pyvacs-run`` - run a cartridge headless on the Fountain Force 2 emulator.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+import time
 from typing import List, Optional
 
 from . import __version__
@@ -105,4 +107,66 @@ def disassemble_main(argv: Optional[List[str]] = None) -> int:
             handle.write(text)
     else:
         sys.stdout.write(text)
+    return 0
+
+
+def run_main(argv: Optional[List[str]] = None) -> int:
+    """Entry point for ``pyvacs-run``."""
+    parser = argparse.ArgumentParser(
+        prog="pyvacs-run",
+        description="Run a cartridge headless on the Fountain Force 2 emulator.",
+    )
+    parser.add_argument("cart", help="cartridge image")
+    parser.add_argument("--region", choices=("pal", "ntsc"), default="pal")
+    parser.add_argument("--frames", type=int, default=300, help="frames to run")
+    parser.add_argument("--png", help="write the final frame to this PNG")
+    parser.add_argument(
+        "--keys", nargs="+", default=[], help="player 1 keys held throughout"
+    )
+    parser.add_argument(
+        "--panel",
+        nargs="+",
+        default=[],
+        choices=("start", "option", "select"),
+        help="console buttons held throughout",
+    )
+    parser.add_argument(
+        "--coverage", help="write 32 KiB of per-address execution counts here"
+    )
+    parser.add_argument("--version", action="version", version=f"pyvacs {__version__}")
+    args = parser.parse_args(argv)
+
+    from tqdm import tqdm  # pylint: disable=import-outside-toplevel
+
+    from . import emu  # pylint: disable=import-outside-toplevel
+
+    try:
+        machine = emu.FountainForce2(_read_bytes(args.cart), args.region)
+        machine.set_keys(0, emu.keymask(args.keys))
+    except (OSError, ValueError) as exc:
+        print(f"pyvacs-run: {exc}", file=sys.stderr)
+        return 1
+    machine.set_panel(sum(emu.PANEL[p] for p in set(args.panel)))
+    machine.coverage(bool(args.coverage))
+
+    step = max(1, round(machine.fps))
+    start = time.perf_counter()
+    with tqdm(total=args.frames, unit="frame", file=sys.stderr) as pbar:
+        while machine.frames < args.frames:
+            n = min(step, args.frames - machine.frames)
+            machine.run_frames(n)
+            pbar.update(n)
+            elapsed = time.perf_counter() - start
+            pbar.set_postfix(speed=f"{machine.seconds / max(elapsed, 1e-9):.1f}x")
+    elapsed = max(time.perf_counter() - start, 1e-9)
+
+    if args.png:
+        machine.save_png(args.png)
+    if args.coverage:
+        with open(args.coverage, "wb") as handle:
+            handle.write(machine.executed())
+    print(
+        f"{args.frames} frames ({machine.seconds:.2f}s emulated) in {elapsed:.2f}s: "
+        f"{machine.seconds / elapsed:.1f}x real time"
+    )
     return 0
