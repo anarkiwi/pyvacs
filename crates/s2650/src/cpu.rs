@@ -4,6 +4,16 @@
 //! instruction costs 6, a 3-cycle 9, a 4-cycle 12, and indirection adds 6.
 
 use crate::bus::{Bus, Port};
+use core::marker::PhantomData;
+
+type Handler<B> = fn(&mut Cpu, &mut B) -> u32;
+
+/// Per-opcode dispatch table for a bus type.
+struct Ops<B>(PhantomData<B>);
+
+impl<B: Bus> Ops<B> {
+    const TABLE: [Handler<B>; 256] = seq_macro::seq!(N in 0..256 { [#(Cpu::handler::<N, B>,)*] });
+}
 
 /// Page bits of a 15-bit address.
 pub const PAGE: u16 = 0x6000;
@@ -395,6 +405,16 @@ impl Cpu {
     #[inline(always)]
     fn execute<B: Bus>(&mut self, bus: &mut B) -> u32 {
         let op = self.next(bus);
+        Ops::<B>::TABLE[op as usize](self, bus)
+    }
+
+    /// Opcode `OP`'s handler: `exec` with the opcode a constant, so its `match` folds.
+    fn handler<const OP: u8, B: Bus>(&mut self, bus: &mut B) -> u32 {
+        self.exec(bus, OP)
+    }
+
+    #[inline(always)]
+    fn exec<B: Bus>(&mut self, bus: &mut B, op: u8) -> u32 {
         let r = op & 3;
         let x = self.ri(r);
         match op {

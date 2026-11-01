@@ -97,7 +97,7 @@ msg:    db    $21,$1e,$ff
 ## Emulator
 
 A native (Rust, GIL-free) Signetics 2650 + 2637 UVI emulator runs Fountain Force 2 /
-Arcadia 2001 cartridges headless at hundreds of times real time:
+Arcadia 2001 cartridges headless at over a thousand times real time per thread:
 
 ```sh
 pyvacs-run game.bin --frames 600 --png shot.png

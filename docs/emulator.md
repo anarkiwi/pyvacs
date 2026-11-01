@@ -13,7 +13,9 @@ extension declares free-threaded CPython support.
 | `crates/fforce2` | The Fountain Force 2 / Arcadia machine: memory map, cartridge, keypads, panel, paddles, line scheduling. |
 | `crates/pyvacs-emu` | PyO3 extension `pyvacs._emu`: `S2650` (CPU over `FlatBus`) and `FountainForce2`. |
 | `src/pyvacs/emu.py` | numpy views, PNG output, `run_parallel`, `speed`. |
-| `crates/fforce2/examples/bench.rs` | `cargo run --release -p fforce2 --example bench -- CART [FRAMES]` |
+| `crates/fforce2/examples/bench.rs` | `cargo run --release -p fforce2 --example bench -- [--slow] FRAMES CART...` |
+| `crates/fforce2/examples/equiv.rs` | `cargo run --release -p fforce2 --example equiv -- CART...`: fast path vs plain stepping |
+| `docker/profile.Dockerfile` | valgrind/callgrind image for profiling where `perf` is unavailable |
 
 ## Python
 
@@ -59,6 +61,30 @@ mid-frame changes take effect on the following lines. CHARLINE follows the docum
 sequence (`$FF`, `$F0`..`$FC`, `$FD`, `$FF`). Collision and paddle registers are
 read-once/VRST-only as documented; their unused bits read 1.
 
+## Fast path
+
+`Machine::fast` (Python `fast`, on by default) changes speed only; every observable
+result (registers, memory, clocks, beam position, framebuffer) is identical to plain
+stepping:
+
+- **Idle loops.** At each backward jump the CPU state is checkpointed. If it returns to
+  the same PC with identical registers, PSL/PSU and return stack, having written nothing,
+  changed FLAG, or read a read-once register (collisions, paddles), every further
+  iteration is identical until a value it read (SENSE, CHARLINE) changes or the frame
+  ends. `Uvi::stable_lines` gives that horizon analytically, and whole iterations are
+  skipped up to it while the raster keeps running.
+- **Delay loops.** A taken `BDRR,r $`/`BIRR,r $` (branching to itself) runs its remaining
+  iterations in closed form.
+- **Unobserved frames.** `run_frames(n)` draws pixels only for the last frame; earlier
+  lines compute sprite collisions alone (as bitmasks, and only on lines a sprite can
+  occupy), since games read those.
+- **Dispatch.** Opcodes dispatch through a 256-entry table of handlers specialised per
+  opcode at compile time; cartridge fetches read a flat 32 KiB image.
+
+Breakpoints and coverage recording use plain stepping. `tests/test_games.py` and
+`crates/fforce2/tests/fast.rs` check equivalence frame by frame, across batched runs and
+odd `run_clocks` sizes, in both regions.
+
 ## Sources
 
 - Signetics 2650 semantics: the 2650 datasheet, cross-checked against MAME's
@@ -75,7 +101,8 @@ read-once/VRST-only as documented; their unused bits read 1.
   `examples/helloworld` cartridge renders a solid green frame in both regions.
 - `tests/test_games.py`: every game in the TOSEC Arcadia set (bad/over/hacked dumps,
   the Dictionary sub-cartridges and the Palladium-only Golf excluded) runs 600 frames in
-  both regions with no undefined opcodes, deterministically, faster than 20× real time.
+  both regions with no undefined opcodes, deterministically, faster than 200× real time,
+  and identically with and without the fast path.
 - `tests/test_mame_crosscheck.py` (`pytest -m integration`): each game runs in MAME and
   in pyvacs; settled screen memory must match byte for byte, and pressing Start must
   change the screen exactly when it does in MAME. Games that differ for a known reason
