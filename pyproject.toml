@@ -7,7 +7,7 @@ name = "pyvacs"
 version = "0.2.0"
 description = "A Python assembler, disassembler and emulator for the Signetics 2650 microprocessor"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { file = "LICENSE" }
 authors = [{ name = "Josh Bailey", email = "josh@overlyspecific.com" }]
 keywords = ["2650", "signetics", "assembler", "disassembler", "emulator", "arcadia", "retro"]
@@ -16,7 +16,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
@@ -55,7 +54,7 @@ features = ["pyo3/extension-module"]
 
 [tool.black]
 line-length = 88
-target-version = ["py311"]
+target-version = ["py312"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -69,7 +68,7 @@ branch = true
 source = ["pyvacs"]
 
 [tool.pylint.main]
-py-version = "3.11"
+py-version = "3.12"
 extension-pkg-allow-list = ["pyvacs._emu"]
 
 [tool.pylint.format]
